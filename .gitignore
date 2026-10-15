@@ -24,6 +24,8 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+local_files/
+llm-jp-eval-inference/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -113,3 +115,6 @@ configs/config.yaml
 dataset/
 logs/
 offline/
+
+# confidentials
+.env
