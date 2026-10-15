@@ -14,7 +14,7 @@ tasks:
   hf_login:
     desc: "Login Hugginface Hub. Please set your token as HF_TOKEN in .env file."
     cmds:
-      - uv run huggingface-cli login --token $HF_TOKEN
+      - uv run --no-sync huggingface-cli login --token $HF_TOKEN
 
   install:
     cmds:
@@ -28,7 +28,7 @@ tasks:
       - |
         echo "Prepare evaluation dataset..."
         if [ ! -d "local_files" ]; then
-          uv run python scripts/preprocess_dataset.py -d all
+          uv run --no-sync python scripts/preprocess_dataset.py -d all
         fi
     silent: true
 
@@ -38,9 +38,9 @@ tasks:
     vars:
       dataset: '{{.dataset | default ""}}'
       all_datasets:
-        sh: uv run python -c "from llm_jp_eval.jaster import DatasetRegistry; print(' '.join(DatasetRegistry.list_registered()))"
+        sh: uv run --no-sync python -c "from llm_jp_eval.jaster import DatasetRegistry; print(' '.join(DatasetRegistry.list_registered()))"
       version_name:
-        sh: uv run python -c "from importlib.metadata import version; print(version('llm-jp-eval'))"
+        sh: uv run --no-sync python -c "from importlib.metadata import version; print(version('llm-jp-eval'))"
     cmds:
       - |
         if [ -z "{{.dataset}}" ]; then
@@ -62,12 +62,12 @@ tasks:
           # Install all missing
           for d in {{.all_datasets}}; do
             if [ ! -f "local_files/datasets/{{.version_name}}/evaluation/test/${d}.json" ]; then
-              uv run python scripts/preprocess_dataset.py -d $d
+              uv run --no-sync python scripts/preprocess_dataset.py -d $d
             fi
           done
         else
           # Install specific dataset
-          uv run python scripts/preprocess_dataset.py -d {{.dataset}}
+          uv run --no-sync python scripts/preprocess_dataset.py -d {{.dataset}}
         fi
 
   build:
@@ -124,7 +124,7 @@ tasks:
     cmds:
       - |
         if [ -n "{{.config_path}}" ]; then
-          uv run inference.py get_run_name --config {{.abs_config_path}} --prompt_json_path=""   2>/dev/null | tail -n1
+          uv run --no-sync inference.py get_run_name --config {{.abs_config_path}} --prompt_json_path=""   2>/dev/null | tail -n1
         else
           echo "Error: Config path is required for get_run_name"
           exit 1
@@ -133,6 +133,9 @@ tasks:
 
   inference:
     desc: Run inference with optional config file
+    env:
+      PATH: '{{env "CUDA_HOME"}}/bin:{{env "PATH"}}'
+      LD_LIBRARY_PATH: '{{env "CUDA_HOME"}}/lib64{{if env "LD_LIBRARY_PATH"}}:{{env "LD_LIBRARY_PATH"}}{{end}}'
     vars:
       module: '{{.MODULE | default .DEFAULT_MODULE}}'
       config_path: '{{.config | default ""}}'
@@ -145,9 +148,9 @@ tasks:
     cmds:
       - |
         if [ -n "{{.config_path}}" ]; then
-          uv run inference.py inference --config {{.abs_config_path}} {{.CLI_ARGS}}
+          uv run --no-sync inference.py inference --config {{.abs_config_path}} {{.CLI_ARGS}}
         else
-          uv run inference.py {{.CLI_ARGS}}
+          uv run --no-sync inference.py {{.CLI_ARGS}}
         fi
     silent: false
 
@@ -159,7 +162,7 @@ tasks:
       config_file: '{{.config}}'
     deps: [run_sandbox]
     cmds:
-      - uv run scripts/evaluate_llm.py eval  --config={{.config_file}} {{ .CLI_ARGS}}
+      - uv run --no-sync scripts/evaluate_llm.py eval  --config={{.config_file}} {{ .CLI_ARGS}}
 
   eval_inference:
     desc: "Run inference and evaluation with specified configs"
@@ -172,7 +175,7 @@ tasks:
       inference_input_path:
         sh: |
           # jqのない環境に対応
-          uv run scripts/evaluate_llm.py dump --config {{.eval_config_path}} --dry_run | sed -n 's/.*"inference_input_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+          uv run --no-sync scripts/evaluate_llm.py dump --config {{.eval_config_path}} --dry_run | sed -n 's/.*"inference_input_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
       run_name:
         sh: task get_run_name config={{.inference_config_path}} MODULE={{.module}}
       inference_result_dir: "llm-jp-eval-inference/inference-modules/{{.module}}/outputs/{{.run_name}}"
@@ -191,7 +194,7 @@ tasks:
       - |
         if [ ! -d "{{.inference_input_path }}" ]; then
           echo "Inference input path does not exist. Run dump scrupts..."
-          uv run scripts/evaluate_llm.py dump --config {{.eval_config_path}}
+          uv run --no-sync scripts/evaluate_llm.py dump --config {{.eval_config_path}}
         fi
 
         if [ -d "{{.inference_result_dir}}" ] && [ "{{.skip_inference}}" = "true" ]; then
