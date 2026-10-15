@@ -1,0 +1,130 @@
+datasets:
+  - commonsensemoralja
+  - gpqa_diamond_en
+  - gpqa_diamond_ja
+  - gpqa_extended_en
+  - gpqa_extended_ja
+  - gpqa_main_en
+  - gpqa_main_ja
+  - jamc-qa
+  - jamp
+  - janli
+  - jblimp
+  - jcola-in-domain
+  - jcola-out-of-domain
+  - jcommonsenseqa
+  - jmmlu
+  - jnli
+  - jsem
+  - jsick
+  - kuci
+  - mmlu_en
+  - mmlu_prox_en
+  - mmlu_prox_ja
+  - mmmlu
+  - openbookqa
+  - winogrande_xl
+categories:
+  NLI:
+    description: "Natural Language Inference"
+    default_metric: exact_match
+    metrics: {}
+    datasets:
+      - jamp
+      - janli
+      - jnli
+      - jsem
+      - jsick
+  QA:
+    description: "Question Answering"
+    default_metric: exact_match
+    metrics:
+      triviaqa: triviaqa_f1
+      drop: drop_f1
+      jculture-mcq: set_f1
+    datasets:
+      - jamc-qa
+  CR:
+    description: "Commonsense Reasoning"
+    default_metric: exact_match
+    metrics: {}
+    datasets:
+      - jcommonsenseqa
+      - commonsensemoralja
+      - kuci
+      - winogrande_xl
+  HE-JA:
+    description: "Human Evaluation"
+    default_metric: exact_match
+    metrics:
+      jhle: hle_exact_match
+    datasets:
+      - mmmlu
+      - jmmlu
+      - mmlu_prox_ja
+      - gpqa_diamond_ja
+      - gpqa_extended_ja
+      - gpqa_main_ja
+  HE-EN:
+    description: "Human Evaluation"
+    default_metric: exact_match
+    metrics:
+      hle: hle_exact_match
+    datasets:
+      - mmlu_en
+      - mmlu_prox_en
+      - openbookqa
+      - gpqa_diamond_en
+      - gpqa_extended_en
+      - gpqa_main_en
+  LM:
+    description: "Language Modeling"
+    default_metric: exact_match
+    metrics: {}
+    datasets:
+      - jblimp
+      - jcola-in-domain
+      - jcola-out-of-domain
+dataset_info_overrides:
+  commonsensemoralja: &decision_answer
+    answer_pattern_id: custom
+    answer_extract_pattern: ""
+  gpqa_diamond_en: *decision_answer
+  gpqa_diamond_ja: *decision_answer
+  gpqa_extended_en: *decision_answer
+  gpqa_extended_ja: *decision_answer
+  gpqa_main_en: *decision_answer
+  gpqa_main_ja: *decision_answer
+  jamc-qa: *decision_answer
+  jamp: *decision_answer
+  janli: *decision_answer
+  jblimp: *decision_answer
+  jcola-in-domain: *decision_answer
+  jcola-out-of-domain: *decision_answer
+  jcommonsenseqa: *decision_answer
+  jmmlu: *decision_answer
+  jnli: *decision_answer
+  jsem: *decision_answer
+  jsick: *decision_answer
+  kuci: *decision_answer
+  mmlu_en: *decision_answer
+  mmlu_prox_en: *decision_answer
+  mmlu_prox_ja: *decision_answer
+  mmmlu: *decision_answer
+  openbookqa: *decision_answer
+  winogrande_xl: *decision_answer
+# you can override the below attributes.
+#    instruction: str
+#    output_length: int
+#    metrics: list[str]
+#    samples: list[Sample]
+#    label_list: list[str] = field(default_factory=list)
+#    answer_extract_pattern: Optional[str] = ""
+#    num_few_shots: int | None = None
+#    answer_pattern_id: AnswerPatternId = AnswerPatternId.CUSTOM
+#    language: Literal["ja", "en"] = "ja"
+#    custom_prompt_template: Optional[str] = None
+# for example, revise `dataset_info_overrides: {}` to `dataset_info_overrides:`, and write the below.
+#   jamp:
+#     answer_pattern_id: AnswerPatternId = AnswerPatternId.CUSTOM
+#     num_few_shots: 0
