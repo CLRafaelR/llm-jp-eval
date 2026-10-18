@@ -29,6 +29,7 @@
   - [設定可能項目](#設定可能項目)
 - [評価データセットの追加方法](#評価データセットの追加方法)
   - [データセットの分割基準](#データセットの分割基準)
+- [意思決定モデル（System One Model）の推論と評価](#意思決定モデル（System One Model）の推論と評価)
 - [ライセンス](#ライセンス)
 - [Contribution](#contribution)
 
@@ -101,8 +102,10 @@ _EOF_
 # download llm-jp-eval-inference repository & build container for evaluation
 $ task install
 $ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/config.yaml
-# if you want to evalute non commercial datasets also, put "-- --include_non_commercial" or revise config.yaml directly
+# if you want to evaluate non commercial datasets also, put "-- --include_non_commercial" or revise config.yaml directly
 $ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/config.yaml -- --include_non_commercial
+# if you want to evaluate a Jev-like System One Model, use configs/system_one_config.yaml for eval_config
+$ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/system_one_config.yaml
 ```
 
 ### vllm serverによる同期的な評価方法
@@ -348,6 +351,80 @@ $ uv run scripts/preprocess_dataset.py \
 - `train`、`dev`、`test` の分割が既に決まっているデータセットは、それに従います。
 - `train`、`test` と分割されているデータセットは、`train` をシャッフルした上で `train`: `dev` = 9:1 で分割します。
 - 分割が決まってないデータセットは、全て評価のみに使います。
+
+## 意思決定モデル（System One Model）の推論と評価
+
+`Cloudflare/clef-flash`のような意思決定モデル（System One Model）の推論時は、推論設定の`model`に以下を指定します。なお、通常の生成モデルは `structured_decision` を省略（または `false`）すれば、従来通り `LLM.generate()` で推論します。
+
+```yaml
+# vllm_inference.yaml
+model:
+  model: Cloudflare/clef-flash
+  # Clef is a token-classification decision model, not a text generator.
+  structured_decision: true
+  runner: pooling
+  pooler_config:
+    task: token_classify
+  max_model_len: 16384 # Optional
+
+tokenizer:
+  pretrained_model_name_or_path: Cloudflare/clef-flash
+```
+
+`structured_decision: true`のとき、各ベンチマークサンプルを `state`、データセットの instructionとlabel_listを`questions.answer`に格納します。結果の`answers.answer.choice`は、通常の評価プログラムが読める`generated`として保存されます。
+
+評価設定では、以下のように `configs/system_one_config.yaml` を参考に記述してください。
+
+```yaml
+run_name: null # 最優先で適用されるrun_name。指定しない場合は`wandb.run_name`またはモデル名に実行日時を結合したデフォルト値が用いられる。
+output_dir: 'local_files'
+eval_dataset_config_path: './eval_configs/multi_choice_datasets.yaml' # 評価データセットの設定ファイルのパス
+include_non_commercial: false # true の場合、商用利用不可のデータセットも含めて評価します。
+max_num_samples: 10 # 評価データセットのサンプル数の上限。デフォルトは10件。-1の場合は全件評価します。
+default_answer_extract_pattern: '"answers"\s*:\s*\{\s*"answer"\s*:\s*\{[^{}]*"choice"\s*:\s*"([^"]+)"'
+# `"".join(re.search(default_answer_extraction_pattern, generated_text).groups())` で得たテキストが評価で使用される。
+# llm-jp-eval-inferenceからは、HTTP APIの`POST /v1/systemone`の返り値と同じ構造のJSONを出力する。
+# そのため、JSONから`choice`を抽出する正規表現を記入する。
+output_length_delta: 0
+exporters:
+  local:
+    filename_format: system_one_result_{run_name}_{timestamp}.json
+    export_output_table: true # 出力結果をテーブル形式で保存するかどうか
+    output_top_n: 5           # 出力結果の上位何件を保存するか
+```
+
+評価用データセット設定では、以下のように `eval_configs/multi_choice_datasets.yaml` を参考に、`dataset_info_overrides`で上掲で設定した`default_answer_extract_pattern`が使われるように記述してください。
+
+```yaml
+datasets:
+  - commonsensemoralja
+  - gpqa_diamond_en
+categories:
+  CR:
+    description: "Commonsense Reasoning"
+    default_metric: exact_match
+    metrics: {}
+    datasets:
+      - commonsensemoralja
+  HE-EN:
+    description: "Human Evaluation"
+    default_metric: exact_match
+    metrics:
+      hle: hle_exact_match
+    datasets:
+      - gpqa_diamond_en
+dataset_info_overrides:
+  commonsensemoralja: &decision_answer
+    answer_pattern_id: custom
+    answer_extract_pattern: ""
+  gpqa_diamond_en: *decision_answer
+```
+
+ここまでの一連の設定を行うと、llm-jp-evalでは、次のコマンドで推論・評価を実行できます。
+
+```bash
+$ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/system_one_config.yaml
+```
 
 ## jaster とそれを使ってインストラクションチューニングしたモデルに対する注意
 

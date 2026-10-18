@@ -27,6 +27,7 @@ Please refer to [DATASET.md](./DATASET.md) for details on data formats, a list o
   - [Configurable Options](#configurable-options)
 - [How to Add Evaluation Datasets](#how-to-add-evaluation-datasets)
   - [Standard for Splitting Datasets](#standard-for-splitting-datasets)
+- [Inference and Evaluation of Decision Models (System One Models)](#inference-and-evaluation-of-decision-models-system-one-models)
 - [License](#license)
 - [Contribution](#contribution)
 
@@ -58,7 +59,7 @@ Please refer to [DATASET.md](./DATASET.md) for details on data formats, a list o
     $ uv tool install go-task-bin
     ```
 
-3. Copy config file from template
+3. Copy the config file and .env from templates
 ```bash
 $ cp configs/config_template.yaml configs/config.yaml
 $ cp env.sample .env
@@ -99,8 +100,10 @@ _EOF_
 # download llm-jp-eval-inference repository & build container for evaluation
 $ task install
 $ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/config.yaml
-# if you want to evalute non commercial datasets also, put "-- --include_non_commercial" or revise config.yaml directly
+# if you want to evaluate non commercial datasets also, put "-- --include_non_commercial" or revise config.yaml directly
 $ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/config.yaml -- --include_non_commercial
+# if you want to evaluate a Jev-like System One Model, use configs/system_one_config.yaml for eval_config
+$ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/system_one_config.yaml
 ```
 
 ### Synchronous Evaluation Using vllm Server
@@ -127,8 +130,10 @@ online_inference_config:
     temperature: 0.0
 _EOF_
 
-# If you evaluate code generation tasks
+# If you evaluate code generation tasks (default runtime: Docker)
 $ task run_sandbox
+# To use Singularity
+$ task run_sandbox CONTAINER_RUNTIME=singularity
 
 # Execute evaluation
 $ uv run scripts/evaluate_llm.py eval --config configs/config.yaml
@@ -150,6 +155,21 @@ $ uv run python scripts/preprocess_dataset.py \
 
 This creates evaluation data and instruction data (jaster) in the `/path/to/dataset_dir` directory.
 The `--version-name` is optional, with the default being the `llm-jp-eval version`.
+
+#### Checking Dataset Status and Reinstalling Datasets
+
+Use `task prepare` to check which datasets are installed and reinstall datasets whose installation failed:
+
+```bash
+# Check for datasets that are not installed
+$ task prepare
+
+# Reinstall a specific dataset
+$ task prepare dataset=example_data
+
+# Install all datasets that are not installed
+$ task prepare dataset=all
+```
 
 ### Dump Prompts
 
@@ -268,6 +288,20 @@ Execute evaluation:
 $ uv run scripts/evaluate_llm.py eval --config path/to/config.yaml
 ```
 
+llm-jp-eval uses [Dify-sandbox](https://hub.docker.com/r/langgenius/dify-sandbox) to execute arbitrary code for code generation tasks.
+Both Docker and Singularity are supported as container runtimes.
+If a container runtime is unavailable, you can configure code execution evaluation to bypass Dify-sandbox, **after carefully considering the security risks**.
+**Executing generated code in the same environment as the evaluation process poses a very high security risk.**
+
+Configure the evaluation dataset settings as follows, using `eval_configs/all_datasets.yaml` as a reference:
+
+```yaml
+dataset_info_overrides:
+  mbpp:
+    # Use code_exec instead of code_exec_sandbox
+    metrics: ["code_exec", "pylint_check"]
+```
+
 ### Evaluation Results Output
 
 Evaluation result scores and outputs are defined by the Exporters settings in the configuration file.
@@ -313,6 +347,80 @@ This creates datasets for evaluation and tuning in the `/path/to/dataset_dir` di
 - If the original dataset provides `train`, `dev`, and `test` splits, follow that.
 - If the original dataset provides `train` and `test` splits, `train` will be shuffled and split into `train` and `dev` as 9:1.
 - If there is no split from the original dataset, it will be used for test only.
+
+## Inference and Evaluation of Decision Models (System One Models)
+
+For inference with decision models (System One Models) such as `Cloudflare/clef-flash`, configure `model` in the inference settings as follows. For standard generative models, omit `structured_decision` or set it to `false` to continue using `LLM.generate()` for inference.
+
+```yaml
+# vllm_inference.yaml
+model:
+  model: Cloudflare/clef-flash
+  # Clef is a token-classification decision model, not a text generator.
+  structured_decision: true
+  runner: pooling
+  pooler_config:
+    task: token_classify
+  max_model_len: 16384 # Optional
+
+tokenizer:
+  pretrained_model_name_or_path: Cloudflare/clef-flash
+```
+
+When `structured_decision: true`, each benchmark sample is stored in `state`, and the dataset's instruction and `label_list` are stored in `questions.answer`. The resulting `answers.answer.choice` is saved as `generated`, which the standard evaluation program can read.
+
+Configure the evaluation settings as follows, using `configs/system_one_config.yaml` as a reference:
+
+```yaml
+run_name: null # Highest-priority run name. If unset, use `wandb.run_name` or a default combining the model name and execution timestamp.
+output_dir: 'local_files'
+eval_dataset_config_path: './eval_configs/multi_choice_datasets.yaml' # Path to the evaluation dataset configuration file
+include_non_commercial: false # Set to true to include datasets that do not permit commercial use.
+max_num_samples: 10 # Maximum number of samples per evaluation dataset. Defaults to 10. Set to -1 to evaluate all samples.
+default_answer_extract_pattern: '"answers"\s*:\s*\{\s*"answer"\s*:\s*\{[^{}]*"choice"\s*:\s*"([^"]+)"'
+# The text obtained by `"".join(re.search(default_answer_extract_pattern, generated_text).groups())` is used for evaluation.
+# llm-jp-eval-inference outputs JSON with the same structure as the response from the HTTP API `POST /v1/systemone` endpoint.
+# Specify a regular expression that extracts `choice` from this JSON.
+output_length_delta: 0
+exporters:
+  local:
+    filename_format: system_one_result_{run_name}_{timestamp}.json
+    export_output_table: true # Whether to save output results in table format
+    output_top_n: 5           # How many top results to save
+```
+
+In the evaluation dataset settings, configure `dataset_info_overrides` to use the `default_answer_extract_pattern` specified above, using `eval_configs/multi_choice_datasets.yaml` as a reference:
+
+```yaml
+datasets:
+  - commonsensemoralja
+  - gpqa_diamond_en
+categories:
+  CR:
+    description: "Commonsense Reasoning"
+    default_metric: exact_match
+    metrics: {}
+    datasets:
+      - commonsensemoralja
+  HE-EN:
+    description: "Human Evaluation"
+    default_metric: exact_match
+    metrics:
+      hle: hle_exact_match
+    datasets:
+      - gpqa_diamond_en
+dataset_info_overrides:
+  commonsensemoralja: &decision_answer
+    answer_pattern_id: custom
+    answer_extract_pattern: ""
+  gpqa_diamond_en: *decision_answer
+```
+
+After completing these settings, run inference and evaluation with the following command:
+
+```bash
+$ task eval_inference inference_config=configs/vllm_inference.yaml eval_config=configs/system_one_config.yaml
+```
 
 ## Note on jaster and Instruction-Tuned Models
 
